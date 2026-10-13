@@ -146,11 +146,25 @@ syscall(void)
   if (num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     // Check if system call is blocked by sandbox_mask
     if (p->sandbox_mask & (1 << num)) {
-      p->trapframe->a0 = -1; // Reject system call
-      return;
+      int allowed = 0;
+      
+      // If it's open or exec, check if the argument matches sandbox_path
+      if (num == SYS_open || num == SYS_exec) {
+        char path[MAXPATH];
+        if (argstr(0, path, sizeof(path)) >= 0) {
+          // If a sandbox path is set and matches the system call argument
+          if (p->sandbox_path[0] != '\0' && strncmp(path, p->sandbox_path, MAXPATH) == 0) {
+            allowed = 1;
+          }
+        }
+      }
+
+      if (!allowed) {
+        p->trapframe->a0 = -1; // Reject system call
+        return;
+      }
     }
-    // Use num to lookup the system call function for num, call it,
-    // and store its return value in p->trapframe->a0
+    
     p->trapframe->a0 = syscalls[num]();
   } else {
     printk("%d %s: unknown sys call %d\n", p->pid, p->name, num);
